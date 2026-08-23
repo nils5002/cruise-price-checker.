@@ -223,3 +223,38 @@ def test_openapi_is_available(client):
     schema = client.get("/openapi.json").json()
     assert schema["info"]["title"]
     assert "/api/cruises" in schema["paths"]
+
+
+def test_timestamps_are_returned_with_timezone(client):
+    """Zeitstempel muessen eine Zone tragen -- sonst zeigt die UI sie verschoben."""
+    import re
+
+    from app.db import session_scope
+    from app.models import Scan
+    from app.scanner.runner import execute_scan
+    from app.services import get_or_create_cruise
+
+    session = session_scope()
+    cruise = get_or_create_cruise(session, "mock://cruise/api-timestamps")
+    scan = Scan(cruise_id=cruise.id, conditions={"profiles": ["clean_win_chrome"], "rounds": 1})
+    session.add(scan)
+    session.commit()
+    cruise_id, scan_id = cruise.id, scan.id
+    session.close()
+    execute_scan(scan_id)
+
+    zone = re.compile(r"(?:Z|[+-]\d{2}:\d{2})$")
+
+    scan_payload = client.get(f"/api/scans/{scan_id}").json()
+    for field in ("started_at", "finished_at"):
+        assert zone.search(scan_payload[field]), f"{field} ohne Zeitzone: {scan_payload[field]}"
+    assert zone.search(scan_payload["results"][0]["created_at"])
+
+    overview = next(item for item in client.get("/api/cruises").json() if item["id"] == cruise_id)
+    assert zone.search(overview["last_checked_at"])
+
+    history = client.get(f"/api/cruises/{cruise_id}/history").json()
+    assert zone.search(history[-1]["timestamp"])
+
+    logs = client.get(f"/api/scans/{scan_id}/logs").json()
+    assert zone.search(logs[0]["created_at"])

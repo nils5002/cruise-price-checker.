@@ -2,6 +2,16 @@ const EUR = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR',
 const DATE = new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' });
 const DATETIME = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 
+/**
+ * Zeitstempel robust parsen: Werte ohne Zeitzonenangabe werden als UTC
+ * gelesen (so liefert es das Backend), reine Datumsangaben bleiben lokal.
+ */
+function toDate(value: string): Date {
+  if (value.length <= 10) return new Date(`${value}T00:00:00`);
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(value);
+  return new Date(hasZone ? value : `${value}Z`);
+}
+
 export function money(value: number | null | undefined, currency = 'EUR'): string {
   if (value === null || value === undefined) return '–';
   if (currency !== 'EUR') {
@@ -24,21 +34,21 @@ export function percent(value: number | null | undefined): string {
 
 export function isoDate(value: string | null | undefined): string {
   if (!value) return '–';
-  const parsed = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
+  const parsed = toDate(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return DATE.format(parsed);
 }
 
 export function dateTime(value: string | null | undefined): string {
   if (!value) return '–';
-  const parsed = new Date(value);
+  const parsed = toDate(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return DATETIME.format(parsed);
 }
 
 export function relativeTime(value: string | null | undefined): string {
   if (!value) return '–';
-  const parsed = new Date(value);
+  const parsed = toDate(value);
   if (Number.isNaN(parsed.getTime())) return value;
   const diffMinutes = Math.round((parsed.getTime() - Date.now()) / 60000);
   const absolute = Math.abs(diffMinutes);

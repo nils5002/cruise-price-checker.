@@ -1,7 +1,7 @@
 """Pydantic schemas (API contract)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -9,6 +9,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def _mark_naive_datetimes_as_utc(cls, value: Any) -> Any:
+        """Zeitstempel immer mit Zeitzone ausliefern.
+
+        Intern wird durchgehend UTC gespeichert. SQLite gibt die Werte jedoch
+        ohne Zeitzone zurueck; ohne Kennzeichnung interpretiert der Browser sie
+        als Ortszeit und zeigt sie um den UTC-Offset verschoben an.
+        """
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 # --- requests --------------------------------------------------------------
@@ -108,7 +121,7 @@ class CruiseOut(ORMModel):
     notes: Optional[str] = None
 
 
-class CruiseOverviewOut(BaseModel):
+class CruiseOverviewOut(ORMModel):
     id: int
     provider: str
     title: Optional[str] = None

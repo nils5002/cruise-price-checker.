@@ -33,6 +33,7 @@ jeder Anbieter bekommt einen eigenen Provider-Adapter.
 - [Healthchecks](#healthchecks)
 - [Fehleranalyse und Debug-Modus](#fehleranalyse-und-debug-modus)
 - [API](#api)
+- [Lokal testen ohne Docker](#lokal-testen-ohne-docker)
 - [Entwicklung und Tests](#entwicklung-und-tests)
 - [Bekannte Einschränkungen](#bekannte-einschränkungen)
 - [Roadmap](#roadmap)
@@ -597,6 +598,40 @@ HTML-Snapshots werden bewusst als `text/plain` ausgeliefert, damit gespeicherte 
 nie im Browser ausgeführt werden.
 
 ---
+
+## Lokal testen ohne Docker
+
+Für einen schnellen Test auf einem Mac oder Linux-Rechner – Backend mit SQLite,
+Frontend als statischer Build, kein Docker nötig:
+
+```bash
+cd frontend && npm ci && npx vite build && cd ..   # einmalig
+./scripts/local-start.sh                            # legt beim ersten Lauf venv + Chromium an
+```
+
+Danach: **http://localhost:8080**
+
+```bash
+./scripts/local-stop.sh                             # beenden
+tail -f backend/data/local/backend.log              # Logs
+```
+
+Eigene Ports: `WEB_PORT=8090 API_PORT=8010 ./scripts/local-start.sh`
+Sichtbarer Browser zum Zuschauen: `HEADLESS=false ./scripts/local-start.sh`
+
+Details dieses Modus:
+
+* SQLite unter `backend/data/local/app.db`, Screenshots unter
+  `backend/data/local/screenshots/`
+* Firefox-Profil ist deaktiviert (nur Chromium wird lokal installiert)
+* Pausen zwischen Profilen auf 2 s verkürzt, damit ein Testlauf schnell ist –
+  im Docker-Betrieb gelten die konservativen Standardwerte
+* `scripts/serve_frontend.py` übernimmt lokal die Rolle des nginx-Containers
+  (statische Dateien + `/api`-Proxy)
+
+Zum Ausprobieren ohne echte Website: Link `mock://cruise/demo?variant=default`
+einfügen (weitere Varianten siehe
+[Erster Selbsttest ohne MSC](#erster-selbsttest-ohne-msc)).
 
 ## Entwicklung und Tests
 
