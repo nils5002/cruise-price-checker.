@@ -1,6 +1,19 @@
-# Cruise Price Checker -- vollstaendiger Stack.
-#   docker compose up -d --build
-# Portainer-kompatibel (kein Kubernetes, keine externen Abhaengigkeiten).
+# Cruise Price Checker -- Variante fuer Portainer mit FERTIGEN Images.
+#
+# Warum: Beim Repo-Deploy baut Portainer die Images synchron und antwortet erst
+# danach. Der Backend-Build zieht das ~2 GB Playwright-Image -- das dauert
+# laenger als der Gateway-Timeout und endet im Browser mit
+# "504 Gateway Time-out". Diese Datei baut nichts, sie zieht nur die von der
+# GitHub Action veroeffentlichten Images: Deploy in Sekunden.
+#
+# Portainer: Stacks -> Add stack -> Repository
+#   Repository URL:  https://github.com/nils5002/cruise-price-checker.
+#   Compose path:    docker-compose.prebuilt.yml
+#
+# Voraussetzung: die GHCR-Packages muessen oeffentlich sein (einmalig unter
+# github.com/nils5002?tab=packages -> Package -> Package settings ->
+# Change visibility -> Public). Alternativ in Portainer eine Registry
+# "ghcr.io" mit Personal Access Token (read:packages) anlegen.
 
 services:
   db:
@@ -25,9 +38,8 @@ services:
       - cpc
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ${BACKEND_IMAGE:-ghcr.io/nils5002/cruise-price-checker-backend:latest}
+    pull_policy: always
     container_name: cpc-backend
     restart: unless-stopped
     # Alle Variablen sind explizit gesetzt, damit der Stack sowohl mit einer
@@ -107,13 +119,13 @@ services:
     networks:
       - cpc
 
+  # Hinweis: VITE_API_BASE/VITE_BASE_PATH sind im fertigen Image fest
+  # eingebacken (Standard: /api bzw. /). Fuer den Betrieb unter einem
+  # Unterpfad die Build-Variante docker-compose.yml verwenden oder die
+  # Build-Args in .github/workflows/docker-publish.yml setzen.
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE: ${VITE_API_BASE:-/api}
-        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+    image: ${FRONTEND_IMAGE:-ghcr.io/nils5002/cruise-price-checker-frontend:latest}
+    pull_policy: always
     container_name: cpc-frontend
     restart: unless-stopped
     depends_on:

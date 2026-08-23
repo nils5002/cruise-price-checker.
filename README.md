@@ -29,6 +29,7 @@ jeder Anbieter bekommt einen eigenen Provider-Adapter.
 - [Proxy-Konfiguration](#proxy-konfiguration)
 - [Reverse Proxy (Nginx Proxy Manager)](#reverse-proxy-nginx-proxy-manager)
 - [Portainer](#portainer)
+- [CI / GitHub Actions](#ci--github-actions)
 - [Healthchecks](#healthchecks)
 - [Fehleranalyse und Debug-Modus](#fehleranalyse-und-debug-modus)
 - [API](#api)
@@ -87,8 +88,9 @@ Danach ist die Weboberfläche erreichbar unter:
 http://SERVER-IP:8080
 ```
 
-Die API liegt unter `http://SERVER-IP:8000` (bzw. über die UI unter `/api`),
-die interaktive API-Dokumentation unter `http://SERVER-IP:8080/docs`.
+Die API liegt unter `http://SERVER-IP:8080/api`, die interaktive
+API-Dokumentation unter `http://SERVER-IP:8080/docs`. Ein separater Backend-Port
+wird nicht veröffentlicht.
 
 Der erste Build lädt das Playwright-Image (~2 GB) – das dauert einige Minuten.
 
@@ -133,9 +135,15 @@ abgeschaltet werden.
 
 | Port | Container | Zweck | Variable |
 | --- | --- | --- | --- |
-| 8080 | frontend (nginx) | Weboberfläche, proxyt `/api` zum Backend | `WEB_PORT` |
-| 8000 | backend (uvicorn) | REST-API, `/health`, `/docs` | `BACKEND_PORT` |
-| 5432 | db (postgres) | nur intern im Docker-Netz, nicht veröffentlicht | – |
+| 8080 | frontend (nginx) | Weboberfläche **und** API: `/api`, `/health`, `/docs` | `WEB_PORT` |
+| – | backend (uvicorn) | nur intern im Docker-Netz (Port 8000, nicht veröffentlicht) | `BACKEND_PORT`* |
+| – | db (postgres) | nur intern im Docker-Netz (Port 5432, nicht veröffentlicht) | – |
+
+\* Der Backend-Port ist absichtlich **nicht** veröffentlicht: die Oberfläche
+erreicht die API intern, und ein belegter Host-Port 8000 lässt den Stack sonst
+mit `port is already allocated` scheitern. Für direkten API-Zugriff in
+`docker-compose.yml` den `ports`-Block des Backends einkommentieren und
+`BACKEND_PORT` auf einen freien Port setzen.
 
 ---
 
@@ -374,6 +382,21 @@ PROXY_DE_3_LABEL=DE Mobilfunk
 
 ---
 
+## CI / GitHub Actions
+
+Zwei Workflows liegen unter `.github/workflows/`:
+
+| Workflow | Auslöser | Zweck |
+| --- | --- | --- |
+| `ci.yml` | Push, Pull Request | Backend: `ruff`, `mypy`, `pytest`; Frontend: `tsc --noEmit`, `vite build` |
+| `docker-publish.yml` | Push auf `main` (Änderungen in `backend/` oder `frontend/`), manuell | Baut beide Images und pusht sie nach `ghcr.io/<user>/cruise-price-checker-{backend,frontend}` |
+
+Tags: `latest` (nur `main`), `sha-<kurzhash>`, Branchname. Architektur
+standardmäßig `linux/amd64` – für ARM-Hosts (z. B. Raspberry Pi) in
+`docker-publish.yml` `platforms: linux/amd64,linux/arm64` setzen.
+
+Ein eigenes Secret ist nicht nötig, der Workflow nutzt `GITHUB_TOKEN`.
+
 ## Reverse Proxy (Nginx Proxy Manager)
 
 Ziel im NPM: `http://SERVER-IP:8080` (Container `cpc-frontend`).
@@ -390,15 +413,72 @@ Ziel im NPM: `http://SERVER-IP:8080` (Container `cpc-frontend`).
 
 ## Portainer
 
-`docker-compose.yml` ist als Portainer-Stack direkt verwendbar:
-
-1. **Stacks → Add stack**, Repository oder Web-Editor wählen.
-2. Inhalt von `.env.example` unter **Environment variables** eintragen
-   (mindestens `POSTGRES_PASSWORD` und `DATABASE_URL`).
-3. **Deploy the stack**.
-
 Es werden keine Kubernetes-Funktionen, keine externen Netzwerke und keine
 Host-Bind-Mounts benötigt – nur benannte Volumes.
+
+### Empfohlen: Stack mit fertigen Images (kein Build in Portainer)
+
+1. **Stacks → Add stack → Repository**
+2. Repository URL: `https://github.com/nils5002/cruise-price-checker.`
+3. **Compose path:** `docker-compose.prebuilt.yml`
+4. Unter **Environment variables** mindestens `POSTGRES_PASSWORD` und
+   `DATABASE_URL` setzen.
+5. **Deploy the stack** – dauert Sekunden, weil nur gezogen wird.
+
+Voraussetzung: die von der GitHub Action veröffentlichten GHCR-Packages müssen
+erreichbar sein. Einmalig unter `github.com/<user>?tab=packages` → Package →
+*Package settings* → **Change visibility → Public**. Alternativ in Portainer
+unter **Registries** eine Registry `ghcr.io` mit einem Personal Access Token
+(Scope `read:packages`) anlegen.
+
+### Alternative: Build in Portainer (`docker-compose.yml`)
+
+Funktioniert, ist beim **ersten** Deploy aber langsam: das Playwright-Basisimage
+ist ~2 GB. Siehe [504 Gateway Time-out](#504-gateway-time-out-in-portainer).
+
+### 504 Gateway Time-out in Portainer
+
+```html
+<html><head><title>504 Gateway Time-out</title></head>...openresty...
+```
+
+Das ist **kein Fehler der Anwendung**. Portainer baut beim Repo-Deploy die
+Images synchron und antwortet erst danach; der vorgeschaltete Proxy bricht die
+Anfrage vorher ab. Der Build läuft im Hintergrund oft trotzdem weiter.
+
+Abhilfe, in dieser Reihenfolge:
+
+1. **Fertige Images verwenden** – `docker-compose.prebuilt.yml` wie oben. Damit
+   entfällt der Build vollständig (empfohlen).
+2. **Vorab auf dem Host bauen**, danach in Portainer deployen – dann ist alles
+   im Build-Cache und das Deploy ist schnell:
+
+   ```bash
+   git clone https://github.com/nils5002/cruise-price-checker. cpc
+   cd cpc && cp .env.example .env
+   docker compose build --pull          # dauert einige Minuten, einmalig
+   ```
+
+3. **Timeout des Proxys erhöhen**, der vor Portainer steht (Nginx Proxy Manager
+   → Advanced):
+
+   ```nginx
+   proxy_read_timeout 600s;
+   proxy_send_timeout 600s;
+   proxy_connect_timeout 600s;
+   ```
+
+4. **Prüfen, was tatsächlich passiert ist** – trotz 504 läuft der Stack
+   möglicherweise schon:
+
+   ```bash
+   docker ps --filter name=cpc-
+   docker compose -p <stackname> logs -f backend
+   docker images | grep cruise-price-checker
+   ```
+
+Wenn der Stack in Portainer als „failed" hängt, aber Container laufen: Stack
+entfernen, dann mit `docker-compose.prebuilt.yml` neu anlegen.
 
 ---
 
@@ -456,13 +536,14 @@ startet erst danach (`depends_on: condition: service_healthy`).
    | `SELECTOR_CHANGED` | Seitenaufbau geändert. Nur `selectors.py` anpassen. |
    | `TIMEOUT` | Netz/Seite langsam. `NAVIGATION_TIMEOUT_MS` erhöhen. |
    | Chromium startet nicht | `shm_size` prüfen, Container-Logs ansehen. |
+   | `port is already allocated` | Ein Host-Port des Stacks ist belegt. Belegung finden: `docker ps --format '{{.Names}} {{.Ports}}' \| grep 8080` bzw. `sudo lsof -i :8080`. Dann `WEB_PORT` auf einen freien Port setzen. Der Backend-Port wird standardmäßig nicht veröffentlicht. |
+   | 504 beim Deploy in Portainer | Kein App-Fehler, siehe [504 Gateway Time-out](#504-gateway-time-out-in-portainer). |
 
 ---
 
 ## API
 
-Basis: `/api` (über die UI) bzw. `http://SERVER-IP:8000/api`.
-Interaktive Doku: `/docs`.
+Basis: `http://SERVER-IP:8080/api`. Interaktive Doku: `/docs`.
 
 | Methode | Pfad | Zweck |
 | --- | --- | --- |
