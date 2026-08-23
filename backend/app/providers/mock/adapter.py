@@ -12,6 +12,7 @@ Variants:
   default   stable prices, iPhone + returning visitor are more expensive
   dynamic   prices jitter on every run   -> "Preis dynamisch"
   blocked   simulates a CAPTCHA wall     -> BLOCKED_CAPTCHA
+  blocked_all  jedes Profil wird blockiert -> Scan bricht ab
   noprice   page loads but no price      -> PRICE_NOT_FOUND
   identity  one profile shows a different tariff -> "Angebote unterscheiden sich"
 """
@@ -207,7 +208,9 @@ class MockProvider(CruiseProvider):
         self.detect_page_type(ctx)
         self.take_snapshot(ctx, "01-angebot-start")
 
-        if variant == "blocked" and ctx.profile_key in ("clean_iphone", "clean_firefox"):
+        if variant == "blocked_all" or (
+            variant == "blocked" and ctx.profile_key in ("clean_iphone", "clean_firefox")
+        ):
             result.status = Status.BLOCKED_CAPTCHA
             result.error = "(Mock) CAPTCHA erkannt - Test wurde sauber beendet."
             result.deepest_step = "offer_start"

@@ -35,6 +35,7 @@ from app.scanner.artifacts import ArtifactWriter
 logger = get_logger(__name__)
 
 MAX_TESTS_PER_ROUND = 24
+BLOCKED_STATES = {Status.BLOCKED_CAPTCHA, Status.BOT_PROTECTION}
 #: Statuses worth retrying -- a block is never retried, we accept it.
 RETRYABLE = {
     Status.TIMEOUT,
@@ -375,10 +376,30 @@ def execute_scan(scan_id: int) -> None:
             max_rounds = max(max_rounds, 1)
         rounds_done = 0
 
+        blocked_count = 0
+        abort_after = max(0, settings.abort_scan_after_blocks)
+        aborted = False
+
         for round_no in range(1, max_rounds + 1):
+            if aborted:
+                break
             logger.info("Scan %s: Runde %s/%s startet (%s Tests).", scan.id, round_no, max_rounds, len(specs))
             for index, spec in enumerate(specs):
-                run_single_test(db, scan, cruise, spec, round_no)
+                result = run_single_test(db, scan, cruise, spec, round_no)
+                if result.status in BLOCKED_STATES:
+                    blocked_count += 1
+                    if abort_after and blocked_count >= abort_after:
+                        message = (
+                            f"Die Website hat den Zugriff blockiert ({result.status}). "
+                            "Der Scan wird abgebrochen; es werden keine weiteren Anfragen "
+                            "gestellt und keine Schutzmaßnahmen umgangen."
+                        )
+                        logger.warning("Scan %s: %s", scan.id, message)
+                        db.add(ScanLog(scan_id=scan.id, level="WARNING", step="blocked", message=message))
+                        _mark_skipped(db, scan, specs[index + 1 :], round_no, message)
+                        db.commit()
+                        aborted = True
+                        break
                 if index < len(specs) - 1:
                     time.sleep(settings.delay_between_profiles_s)
             rounds_done = round_no
@@ -446,6 +467,31 @@ def execute_scan(scan_id: int) -> None:
             pass
     finally:
         db.close()
+
+
+def _mark_skipped(
+    db: Session, scan: Scan, specs: List[TestSpec], round_no: int, reason: str
+) -> None:
+    """Nicht ausgefuehrte Tests sichtbar machen, statt sie stillschweigend weglassen."""
+    for spec in specs:
+        db.add(
+            ScanResult(
+                scan_id=scan.id,
+                round=round_no,
+                profile=spec.profile.key,
+                profile_label=spec.profile.label,
+                device=spec.profile.device,
+                browser=spec.profile.browser,
+                platform=spec.profile.platform,
+                cookie_mode=spec.cookie_mode,
+                referrer=spec.referrer,
+                proxy_name=spec.proxy_name,
+                session_type=spec.profile.session_type,
+                status=ResultStatus.SKIPPED.value,
+                error=reason,
+                attempts=0,
+            )
+        )
 
 
 def _write_history(db: Session, cruise: Cruise, scan: Scan, analysis: Dict[str, Any]) -> None:

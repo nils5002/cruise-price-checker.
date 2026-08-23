@@ -200,3 +200,36 @@ def test_rate_limit_blocks_excessive_scans(db, monkeypatch):
         raise AssertionError("Rate Limit hat nicht gegriffen")
     except RateLimitExceeded as exc:
         assert "Limit erreicht" in str(exc)
+
+
+def test_scan_stops_after_a_block_and_marks_the_rest_skipped(db):
+    """Ein harter Block beendet den Scan -- keine weiteren Anfragen."""
+    profiles = ["clean_win_chrome", "clean_mac_chrome", "clean_iphone", "returning_visitor"]
+    _, scan = _run(db, "mock://cruise/e2e-blockall?variant=blocked_all", profiles=profiles)
+
+    results = db.scalars(select(ScanResult).where(ScanResult.scan_id == scan.id)).all()
+    by_status = {}
+    for row in results:
+        by_status.setdefault(row.status, []).append(row.profile)
+
+    assert len(by_status.get("BLOCKED_CAPTCHA", [])) == 1, "es darf nur ein Versuch stattfinden"
+    assert len(by_status.get("SKIPPED", [])) == len(profiles) - 1
+    assert all(r.attempts == 0 for r in results if r.status == "SKIPPED")
+    assert all("blockiert" in (r.error or "") for r in results if r.status == "SKIPPED")
+
+    analysis = scan.analysis
+    assert analysis["verdict"] == "insufficient_data"
+    assert analysis["headline"] == "Zugriff von der Website blockiert"
+    joined = " ".join(analysis["interpretation"]).lower()
+    assert "nicht umgangen" in joined
+    assert analysis.get("lowest_price") is None
+
+
+def test_block_abort_can_be_relaxed(db, monkeypatch):
+    """Mit abort_scan_after_blocks=0 laufen alle Profile trotz Block weiter."""
+    monkeypatch.setattr(settings, "abort_scan_after_blocks", 0)
+    profiles = ["clean_win_chrome", "clean_iphone"]
+    _, scan = _run(db, "mock://cruise/e2e-blocknoabort?variant=blocked", profiles=profiles)
+    results = db.scalars(select(ScanResult).where(ScanResult.scan_id == scan.id)).all()
+    assert {r.status for r in results} == {"OK", "BLOCKED_CAPTCHA"}
+    assert not [r for r in results if r.status == "SKIPPED"]

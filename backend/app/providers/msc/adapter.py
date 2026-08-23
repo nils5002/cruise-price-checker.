@@ -177,7 +177,16 @@ class MscProvider(CruiseProvider):
         if status_code and status_code >= 500:
             raise base.SiteError(f"Website antwortet mit HTTP {status_code}")
         if status_code in (403, 429):
-            raise BlockedError(f"Zugriff durch die Website eingeschränkt (HTTP {status_code})", kind=Status.BOT_PROTECTION)
+            detail = ""
+            try:
+                detail = " ".join((ctx.page.inner_text("body", timeout=3_000) or "").split())[:180]
+            except Exception:
+                detail = ""
+            raise BlockedError(
+                f"Zugriff durch die Website eingeschränkt (HTTP {status_code})"
+                + (f": {detail}" if detail else ""),
+                kind=Status.BOT_PROTECTION,
+            )
         self._settle(ctx)
         self._guard_page(ctx)
 

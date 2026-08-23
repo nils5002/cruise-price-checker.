@@ -159,10 +159,22 @@ def build_analysis(results: Iterable[Any], *, rounds_planned: int = 1) -> Dict[s
 
     if not priced:
         analysis["verdict"] = "insufficient_data"
-        analysis["headline"] = "Preis konnte nicht zuverlässig ermittelt werden."
-        analysis["interpretation"].append(
-            "Es liegen keine belastbaren Preise vor. Es wird bewusst kein Wert geschaetzt."
-        )
+        skipped = [r for r in rows if r["status"] == "SKIPPED"]
+        if blocked and len(blocked) + len(skipped) == len(rows):
+            analysis["headline"] = "Zugriff von der Website blockiert"
+            analysis["interpretation"].append(
+                "Die Website hat den automatisierten Zugriff abgelehnt (Bot-Schutz bzw. CAPTCHA). "
+                "Es wurden keine Preise erfasst."
+            )
+            analysis["interpretation"].append(
+                "Der Schutzmechanismus wird bewusst nicht umgangen. Ein Preisvergleich ist für "
+                "diesen Anbieter auf diesem Weg derzeit nicht möglich."
+            )
+        else:
+            analysis["headline"] = "Preis konnte nicht zuverlässig ermittelt werden."
+            analysis["interpretation"].append(
+                "Es liegen keine belastbaren Preise vor. Es wird bewusst kein Wert geschätzt."
+            )
         analysis["comparable"] = comparable
         return analysis
 

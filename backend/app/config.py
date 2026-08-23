@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     max_retries_per_profile: int = 2
     retry_backoff_base_s: float = 5.0
     max_scans_per_cruise_per_day: int = 6
+    # Nach wie vielen blockierten Tests der gesamte Scan abgebrochen wird.
+    # 1 = beim ersten harten Block aufhoeren (respektiert die Entscheidung der
+    # Zielseite und vermeidet unnoetige weitere Anfragen). 0 = nie abbrechen.
+    abort_scan_after_blocks: int = 1
 
     # --- feature switches --------------------------------------------------
     enable_mock_provider: bool = True

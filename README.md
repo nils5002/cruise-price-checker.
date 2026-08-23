@@ -35,6 +35,7 @@ jeder Anbieter bekommt einen eigenen Provider-Adapter.
 - [API](#api)
 - [Lokal testen ohne Docker](#lokal-testen-ohne-docker)
 - [Entwicklung und Tests](#entwicklung-und-tests)
+- [Wenn ein Anbieter automatisierte Zugriffe blockiert](#wenn-ein-anbieter-automatisierte-zugriffe-blockiert)
 - [Bekannte Einschränkungen](#bekannte-einschränkungen)
 - [Roadmap](#roadmap)
 
@@ -184,6 +185,7 @@ erforderlich. Die wichtigsten:
 | `DELAY_BETWEEN_PROFILES_S` | `8` | Pause zwischen den Profilen eines Scans |
 | `MIN/MAX_DELAY_BETWEEN_STEPS_MS` | `1200`/`2600` | Pause zwischen Interaktionen |
 | `MAX_SCANS_PER_CRUISE_PER_DAY` | `6` | harte Obergrenze je Reise und Tag |
+| `ABORT_SCAN_AFTER_BLOCKS` | `1` | Scan-Abbruch nach n blockierten Tests (`0` = nie abbrechen) |
 | `MAX_RETRIES_PER_PROFILE` | `2` | Wiederholungen mit exponentiellem Backoff |
 | `VERIFICATION_ROUNDS` | `3` | maximale Runden zur Reproduktionsprüfung |
 | `ENABLE_REFERRER_TESTS` | `false` | Google-/Bing-Referrer zusätzlich testen |
@@ -686,6 +688,48 @@ Neuen Anbieter ergänzen: `CruiseProvider` implementieren (`can_handle_url`, `pa
 registrieren. `run_flow` kann übernommen oder überschrieben werden.
 
 ---
+
+## Wenn ein Anbieter automatisierte Zugriffe blockiert
+
+Beobachtet bei MSC (Stand 08/2026): Anfragen der Automatisierung werden am Edge
+(Akamai) mit **HTTP 403 „Access Denied"** abgelehnt – auch die Startseite und
+sogar `robots.txt`. Derselbe Rechner im normalen Browser lädt die Seite
+problemlos. Der Betreiber lehnt automatisierten Zugriff also gezielt ab.
+
+**Dieses Projekt umgeht das nicht.** Kein Stealth-Patching, keine
+Fingerprint-Verschleierung, kein CAPTCHA-Lösen, kein Proxy-Rotieren zur
+Umgehung. Solche Tests werden als `BLOCKED / Bot-Schutz` bzw.
+`BLOCKED / CAPTCHA` ausgewiesen, und der Scan bricht nach dem ersten harten
+Block ab (`ABORT_SCAN_AFTER_BLOCKS=1`) – die restlichen Tests erscheinen als
+`SKIPPED`, damit sichtbar bleibt, was nicht ausgeführt wurde.
+
+Woran man einen echten Block erkennt (Adminbereich → Debug-Modus, oder
+`docker logs`):
+
+| Merkmal | Bedeutung |
+| --- | --- |
+| HTTP 403/429 sofort beim ersten Aufruf, wenige 100 ms | Sperre am Edge, kein Seitenproblem |
+| Seitentext „Access Denied … Reference #…", `errors.edgesuite.net` | Akamai |
+| „Just a moment…", „Attention Required", Cloudflare-Hinweis | Cloudflare Challenge |
+| Gleiches Bild in allen Profilen, auch Desktop | betrifft den Zugang, nicht das Gerät |
+
+Legitime Wege, das Ziel trotzdem zu erreichen:
+
+1. **Offizielle Kanäle nutzen** – Preisbenachrichtigungen des Anbieters,
+   Newsletter, oder eine Partner-/Affiliate-Schnittstelle mit Datenzugang. Bei
+   berechtigtem Interesse lohnt eine direkte Anfrage beim Anbieter; sie können
+   den Zugriff für eine definierte Nutzung freigeben.
+2. **Anbieter wählen, die es erlauben** – die Provider-Architektur ist auf
+   weitere Anbieter vorbereitet. Vor der Umsetzung jeweils `robots.txt` und
+   Nutzungsbedingungen prüfen; nur umsetzen, wo automatisierter Lesezugriff
+   nicht untersagt ist.
+3. **Beim Anbieter selbst vergleichen** – die Preisunterschiede zwischen
+   Geräten/Sessions lassen sich auch manuell in zwei Browserfenstern prüfen;
+   der Verlauf und die Auswertung dieses Tools bleiben für erlaubte Quellen
+   nutzbar.
+
+Nicht sinnvoll: häufigere Versuche, andere User-Agents oder wechselnde IPs. Das
+ändert nichts an der Entscheidung des Betreibers und verschlechtert die Lage.
 
 ## Bekannte Einschränkungen
 
