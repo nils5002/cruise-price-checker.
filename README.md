@@ -253,6 +253,11 @@ Firefox sind darin bereits installiert. Der Pin in `backend/requirements.txt`
 (`playwright==1.49.0`) **muss** zum Image-Tag passen. Beim Aktualisieren beide Stellen
 gemeinsam ändern.
 
+Das Image kommt bewusst **ohne zusätzliche apt-Schicht**: die Zeitzonendatenbank
+liefert das pip-Paket `tzdata`, und Log-Zeitstempel werden in Python über
+`zoneinfo` auf `TZ` umgerechnet. Das hält den Build kurz – relevant, weil
+Portainer beim Repo-Deploy synchron baut.
+
 Der Container benötigt Shared Memory für Chromium – in `docker-compose.yml` ist deshalb
 `shm_size: "1gb"` gesetzt. Chromium startet mit `--no-sandbox --disable-dev-shm-usage`
 (Container-Standard). Der Entrypoint korrigiert die Rechte auf `/data` und wechselt

@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import re
 import sys
-from typing import Iterable, List
+from datetime import datetime, timezone
+from typing import Iterable, List, Optional
 
 from app.config import settings
 
@@ -68,6 +69,33 @@ def redact(text: str) -> str:
     return RedactionFilter(settings.secret_values())._scrub(text or "")
 
 
+class LocalTimeFormatter(logging.Formatter):
+    """Formatter mit Zeitstempeln in der konfigurierten Zeitzone.
+
+    Bewusst ueber ``zoneinfo`` statt ueber die libc: das Basisimage bringt keine
+    System-Zeitzonendatenbank mit, das pip-Paket ``tzdata`` genuegt so.
+    """
+
+    def __init__(self, fmt: str, datefmt: str, tz_name: Optional[str] = None) -> None:
+        super().__init__(fmt=fmt, datefmt=datefmt)
+        self._tz = self._resolve(tz_name)
+
+    @staticmethod
+    def _resolve(tz_name: Optional[str]):
+        if not tz_name:
+            return timezone.utc
+        try:
+            from zoneinfo import ZoneInfo
+
+            return ZoneInfo(tz_name)
+        except Exception:  # noqa: BLE001 - Logging darf nie am Start scheitern
+            return timezone.utc
+
+    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:  # noqa: N802
+        stamp = datetime.fromtimestamp(record.created, tz=self._tz)
+        return stamp.strftime(datefmt or self.datefmt or "%Y-%m-%d %H:%M:%S")
+
+
 _CONFIGURED = False
 
 
@@ -77,9 +105,10 @@ def setup_logging() -> None:
         return
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(
-        logging.Formatter(
+        LocalTimeFormatter(
             fmt="%(asctime)s %(levelname)-7s %(name)s :: %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
+            tz_name=settings.timezone,
         )
     )
     handler.addFilter(RedactionFilter(settings.secret_values()))

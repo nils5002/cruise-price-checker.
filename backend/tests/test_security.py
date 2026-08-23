@@ -107,3 +107,28 @@ def test_redaction_scrubs_string_arguments():
     )
     RedactionFilter(["mein-geheimes-token"]).filter(record)
     assert "mein-geheimes-token" not in record.getMessage()
+
+
+def test_log_timestamps_use_configured_timezone():
+    """Zeitstempel kommen aus zoneinfo -- unabhaengig von der System-tzdata."""
+    import logging
+    from datetime import datetime
+    from datetime import timezone as dt_timezone
+
+    from app.core.logging_setup import LocalTimeFormatter
+
+    record = logging.LogRecord(
+        name="t", level=logging.INFO, pathname=__file__, lineno=1, msg="x", args=(), exc_info=None
+    )
+    # 2026-08-23 10:00:00 UTC == 12:00 in Europe/Berlin (Sommerzeit)
+    record.created = datetime(2026, 8, 23, 10, 0, 0, tzinfo=dt_timezone.utc).timestamp()
+
+    berlin = LocalTimeFormatter("%(asctime)s", "%Y-%m-%d %H:%M:%S", "Europe/Berlin")
+    assert berlin.formatTime(record) == "2026-08-23 12:00:00"
+
+    utc = LocalTimeFormatter("%(asctime)s", "%Y-%m-%d %H:%M:%S", "UTC")
+    assert utc.formatTime(record) == "2026-08-23 10:00:00"
+
+    # unbekannte Zeitzone -> UTC, aber kein Fehler
+    fallback = LocalTimeFormatter("%(asctime)s", "%Y-%m-%d %H:%M:%S", "Gibt/EsNicht")
+    assert fallback.formatTime(record) == "2026-08-23 10:00:00"
