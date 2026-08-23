@@ -68,3 +68,42 @@ def test_redaction_of_secrets():
     assert "hunter2" not in text
     assert "4111111111111111" not in text
     assert "user:pw" not in text
+
+
+def test_redaction_keeps_numeric_log_arguments():
+    """Zahlen duerfen nicht zu Strings werden -- sonst brechen %d/%.0f-Formate."""
+    import logging
+
+    from app.core.logging_setup import RedactionFilter
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="Wartezeit %.0fs, Versuch %d, Ziel %s",
+        args=(3.0, 2, "http://user:pw@host/x"),
+        exc_info=None,
+    )
+    assert RedactionFilter(["geheim"]).filter(record) is True
+    formatted = record.getMessage()          # wuerde bei String-Args crashen
+    assert formatted.startswith("Wartezeit 3s, Versuch 2")
+    assert "user:pw" not in formatted
+
+
+def test_redaction_scrubs_string_arguments():
+    import logging
+
+    from app.core.logging_setup import RedactionFilter
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="Wert: %s",
+        args=("mein-geheimes-token",),
+        exc_info=None,
+    )
+    RedactionFilter(["mein-geheimes-token"]).filter(record)
+    assert "mein-geheimes-token" not in record.getMessage()

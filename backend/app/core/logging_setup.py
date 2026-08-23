@@ -47,10 +47,17 @@ class RedactionFilter(logging.Filter):
         try:
             record.msg = self._scrub(str(record.msg))
             if record.args:
+                # Nur Strings scrubben -- Zahlen muessen Zahlen bleiben, sonst
+                # brechen Formatangaben wie %d oder %.0f.
                 if isinstance(record.args, dict):
-                    record.args = {k: self._scrub(str(v)) for k, v in record.args.items()}
+                    record.args = {
+                        key: (self._scrub(value) if isinstance(value, str) else value)
+                        for key, value in record.args.items()
+                    }
                 else:
-                    record.args = tuple(self._scrub(str(a)) for a in record.args)
+                    record.args = tuple(
+                        self._scrub(arg) if isinstance(arg, str) else arg for arg in record.args
+                    )
         except Exception:  # pragma: no cover - logging must never explode
             return True
         return True

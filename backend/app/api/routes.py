@@ -11,7 +11,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -210,15 +210,17 @@ def update_cruise(cruise_id: int, payload: CruiseUpdate, db: Session = Depends(g
 @router.delete(
     "/cruises/{cruise_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     tags=["cruises"],
     dependencies=[Depends(require_api_key)],
 )
-def delete_cruise(cruise_id: int, db: Session = Depends(get_db)) -> None:
+def delete_cruise(cruise_id: int, db: Session = Depends(get_db)) -> Response:
     cruise = db.get(Cruise, cruise_id)
     if cruise is None:
         raise HTTPException(status_code=404, detail="Reise nicht gefunden.")
     db.delete(cruise)
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/cruises/{cruise_id}/history", response_model=List[PriceHistoryOut], tags=["cruises"])
@@ -351,15 +353,17 @@ def create_alert(cruise_id: int, payload: AlertCreate, db: Session = Depends(get
 @router.delete(
     "/alerts/{alert_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     tags=["alerts"],
     dependencies=[Depends(require_api_key)],
 )
-def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> None:
+def delete_alert(alert_id: int, db: Session = Depends(get_db)) -> Response:
     alert = db.get(PriceAlert, alert_id)
     if alert is None:
         raise HTTPException(status_code=404, detail="Preisalarm nicht gefunden.")
     db.delete(alert)
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(
