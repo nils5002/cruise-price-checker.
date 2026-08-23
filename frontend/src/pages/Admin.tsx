@@ -86,6 +86,10 @@ export function Admin({ meta }: { meta: Meta | null }) {
               <span>Unterstützt</span>
               <strong>{status.scheduler.supported_intervals.join(', ')}</strong>
             </li>
+            <li>
+              <span>Zeitzone</span>
+              <strong>{status.scheduler.timezone ?? '–'}</strong>
+            </li>
             {status.scheduler.jobs.map((job) => (
               <li key={job.id}>
                 <span>{job.id}</span>
@@ -93,6 +97,11 @@ export function Admin({ meta }: { meta: Meta | null }) {
               </li>
             ))}
           </ul>
+          {status.scheduler.timezone_warning && (
+            <Notice tone="warn" title="Zeitzone">
+              {status.scheduler.timezone_warning}
+            </Notice>
+          )}
         </Card>
 
         <Card title="Limits (Rate Limiting)">

@@ -553,6 +553,7 @@ startet erst danach (`depends_on: condition: service_healthy`).
    | `SELECTOR_CHANGED` | Seitenaufbau geändert. Nur `selectors.py` anpassen. |
    | `TIMEOUT` | Netz/Seite langsam. `NAVIGATION_TIMEOUT_MS` erhöhen. |
    | Chromium startet nicht | `shm_size` prüfen, Container-Logs ansehen. |
+   | `ZoneInfoNotFoundError: No time zone found with key Europe/Berlin` | Im Image fehlt die Zeitzonendatenbank. Behoben durch `tzdata` in `requirements.txt` und im Dockerfile – Image neu bauen (`docker compose build --no-cache backend`). Die App startet inzwischen auch ohne tzdata und fällt im Scheduler auf UTC zurück (Hinweis im Adminbereich). |
    | `port is already allocated` | Ein Host-Port des Stacks ist belegt. Belegung finden: `docker ps --format '{{.Names}} {{.Ports}}' \| grep 8080` bzw. `sudo lsof -i :8080`. Dann `WEB_PORT` auf einen freien Port setzen. Der Backend-Port wird standardmäßig nicht veröffentlicht. |
    | 504 beim Deploy in Portainer | Kein App-Fehler, siehe [504 Gateway Time-out](#504-gateway-time-out-in-portainer). |
    | `container name "/cpc-backend" is already in use` | Reste eines fehlgeschlagenen Deploys. `docker rm -f cpc-backend cpc-frontend cpc-db`, danach neu deployen. |

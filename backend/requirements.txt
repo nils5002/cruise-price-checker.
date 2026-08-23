@@ -13,5 +13,8 @@ playwright==1.49.0
 
 # Scheduling + outbound notifications
 APScheduler==3.11.0
+# Zeitzonendatenbank fuer zoneinfo/APScheduler -- das Playwright-Basisimage
+# bringt keine mit, ohne dieses Paket schlaegt ZoneInfo("Europe/Berlin") fehl.
+tzdata==2026.3
 httpx==0.28.1
 python-dotenv==1.0.1

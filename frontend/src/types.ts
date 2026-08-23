@@ -284,6 +284,8 @@ export interface AdminStatus {
     running: boolean;
     check_every_minutes: number;
     supported_intervals: string[];
+    timezone?: string;
+    timezone_warning?: string | null;
     jobs: { id: string; next_run: string | null }[];
   };
   profiles: ProfileMeta[];

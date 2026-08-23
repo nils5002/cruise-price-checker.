@@ -10,6 +10,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Zeitzonendatenbank des Systems (fuer die libc / TZ und korrekte
+# Log-Zeitstempel). Python nutzt zusaetzlich das pip-Paket tzdata.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 

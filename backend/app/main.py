@@ -24,7 +24,10 @@ async def lifespan(app: FastAPI):
     init_db()
     from app.scheduler.service import start_scheduler, stop_scheduler
 
-    start_scheduler()
+    try:
+        start_scheduler()
+    except Exception:  # noqa: BLE001 - Nebenfunktion darf den Start nie stoppen
+        logger.exception("Scheduler-Start fehlgeschlagen; Anwendung läuft ohne automatische Checks.")
     try:
         yield
     finally:

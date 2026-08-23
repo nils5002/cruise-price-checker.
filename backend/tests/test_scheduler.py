@@ -61,3 +61,80 @@ def test_next_check_is_set_after_a_scan(db):
     cruise.schedule_interval = "manual"
     _update_schedule(cruise)
     assert cruise.next_check_at is None
+
+
+def test_timezone_is_resolved():
+    """Zeitzone muss auflösbar sein -- sonst fehlt tzdata im Image."""
+    from zoneinfo import ZoneInfo
+
+    from app.scheduler.service import resolve_timezone
+
+    zone = resolve_timezone("Europe/Berlin")
+    assert zone == ZoneInfo("Europe/Berlin")
+
+
+def test_missing_timezone_database_falls_back_to_utc(monkeypatch):
+    """Fehlende Zeitzonendatenbank darf den Start nicht verhindern."""
+    from datetime import timezone as dt_timezone
+    from zoneinfo import ZoneInfoNotFoundError
+
+    from app.scheduler import service
+
+    def broken(_name):
+        raise ZoneInfoNotFoundError("No time zone found with key Europe/Berlin")
+
+    monkeypatch.setattr(service, "ZoneInfo", broken)
+    assert service.resolve_timezone("Europe/Berlin") is dt_timezone.utc
+    assert "tzdata" in (service.scheduler_status()["timezone_warning"] or "")
+
+
+def test_unknown_timezone_falls_back_to_utc():
+    from datetime import timezone as dt_timezone
+
+    from app.scheduler.service import resolve_timezone
+
+    assert resolve_timezone("Gibt/EsNicht") is dt_timezone.utc
+    assert resolve_timezone(None) is dt_timezone.utc
+
+
+def test_scheduler_start_failure_does_not_break_the_app(monkeypatch):
+    """Ein kaputter Scheduler darf die Anwendung nicht am Start hindern."""
+    from app.scheduler import service
+
+    monkeypatch.setattr(service.settings, "enable_scheduler", True)
+    monkeypatch.setattr(service, "_scheduler", None)
+
+    class Exploding:
+        def __init__(self, *a, **kw):
+            raise RuntimeError("kaputt")
+
+    monkeypatch.setattr(service, "BackgroundScheduler", Exploding)
+    assert service.start_scheduler() is None
+    assert service.scheduler_status()["running"] is False
+
+
+def test_app_starts_even_without_scheduler(monkeypatch, caplog):
+    """Startup-Sequenz der App bleibt trotz Scheduler-Fehler heil.
+
+    Genau dieser Fall trat im Container auf: ohne Zeitzonendatenbank warf
+    BackgroundScheduler(timezone=...) beim Start, uvicorn beendete sich mit
+    "Application startup failed" und der Healthcheck blieb rot.
+    """
+    import logging
+
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.scheduler import service
+
+    def explode():
+        raise RuntimeError("Scheduler kaputt (simuliert)")
+
+    monkeypatch.setattr(service, "start_scheduler", explode)
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        with TestClient(create_app()) as client:
+            assert client.get("/health").json() == {"status": "ok"}
+            assert client.get("/api/meta").status_code == 200
+    assert any("Scheduler-Start fehlgeschlagen" in record.message for record in caplog.records), (
+        "Der Scheduler-Fehler wurde nicht abgefangen und protokolliert"
+    )

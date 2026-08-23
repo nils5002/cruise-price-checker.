@@ -6,8 +6,9 @@ never sees more than a handful of requests per day and cruise.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -25,6 +26,30 @@ INTERVAL_HOURS = {"6h": 6, "12h": 12, "daily": 24}
 CHECK_EVERY_MINUTES = 10
 
 _scheduler: Optional[BackgroundScheduler] = None
+_timezone_note: Optional[str] = None
+
+
+def resolve_timezone(name: Optional[str]) -> tzinfo:
+    """Zeitzone auflösen, notfalls auf UTC zurückfallen.
+
+    Ohne Zeitzonendatenbank (Paket ``tzdata`` bzw. ``/usr/share/zoneinfo``)
+    wirft ``ZoneInfo`` einen Fehler. Das darf den Start der Anwendung nicht
+    verhindern -- die Preisprüfungen laufen dann in UTC weiter, und der
+    Adminbereich weist darauf hin.
+    """
+    global _timezone_note
+    if name:
+        try:
+            zone = ZoneInfo(name)
+            _timezone_note = None
+            return zone
+        except (ZoneInfoNotFoundError, ModuleNotFoundError, ValueError, OSError) as exc:
+            _timezone_note = (
+                f"Zeitzone '{name}' ist nicht verfügbar ({type(exc).__name__}); "
+                "Scheduler läuft in UTC. Fehlt das Paket 'tzdata' im Image?"
+            )
+            logger.warning("%s", _timezone_note)
+    return timezone.utc
 
 
 def due_cruises(now: Optional[datetime] = None) -> List[Cruise]:
@@ -98,16 +123,24 @@ def start_scheduler() -> Optional[BackgroundScheduler]:
         return None
     if _scheduler is not None:
         return _scheduler
-    scheduler = BackgroundScheduler(timezone=settings.timezone)
-    scheduler.add_job(
-        tick,
-        IntervalTrigger(minutes=CHECK_EVERY_MINUTES),
-        id="price-check-tick",
-        max_instances=1,
-        coalesce=True,
-        replace_existing=True,
-    )
-    scheduler.start()
+    try:
+        scheduler = BackgroundScheduler(timezone=resolve_timezone(settings.timezone))
+        scheduler.add_job(
+            tick,
+            IntervalTrigger(minutes=CHECK_EVERY_MINUTES),
+            id="price-check-tick",
+            max_instances=1,
+            coalesce=True,
+            replace_existing=True,
+        )
+        scheduler.start()
+    except Exception as exc:  # noqa: BLE001 - die App muss trotzdem starten
+        logger.exception(
+            "Scheduler konnte nicht gestartet werden (%s). Die Anwendung läuft "
+            "weiter, automatische Preisprüfungen sind deaktiviert.",
+            type(exc).__name__,
+        )
+        return None
     _scheduler = scheduler
     logger.info("Scheduler gestartet (Prüfintervall: %s Minuten).", CHECK_EVERY_MINUTES)
     return scheduler
@@ -135,5 +168,7 @@ def scheduler_status() -> Dict[str, Any]:
         "running": _scheduler is not None and getattr(_scheduler, "running", False),
         "check_every_minutes": CHECK_EVERY_MINUTES,
         "supported_intervals": ["manual", *INTERVAL_HOURS.keys()],
+        "timezone": settings.timezone,
+        "timezone_warning": _timezone_note,
         "jobs": jobs,
     }
