@@ -436,6 +436,23 @@ unter **Registries** eine Registry `ghcr.io` mit einem Personal Access Token
 Funktioniert, ist beim **ersten** Deploy aber langsam: das Playwright-Basisimage
 ist ~2 GB. Siehe [504 Gateway Time-out](#504-gateway-time-out-in-portainer).
 
+### Deploy direkt auf dem Host (umgeht alle Portainer-Timeouts)
+
+Der zuverlässigste Weg, wenn Portainer beim Deploy abbricht – Portainer zeigt
+den Stack anschließend als „external stack" an und kann ihn normal verwalten:
+
+```bash
+ssh dein-docker-host
+git clone https://github.com/nils5002/cruise-price-checker. cpc
+cd cpc
+cp .env.example .env && nano .env      # POSTGRES_PASSWORD + DATABASE_URL
+docker compose up -d --build           # erster Lauf dauert einige Minuten
+docker compose ps                      # alle drei Container "healthy"?
+docker compose logs -f backend
+```
+
+Aktualisieren später: `git pull && docker compose up -d --build`
+
 ### 504 Gateway Time-out in Portainer
 
 ```html
@@ -538,6 +555,9 @@ startet erst danach (`depends_on: condition: service_healthy`).
    | Chromium startet nicht | `shm_size` prüfen, Container-Logs ansehen. |
    | `port is already allocated` | Ein Host-Port des Stacks ist belegt. Belegung finden: `docker ps --format '{{.Names}} {{.Ports}}' \| grep 8080` bzw. `sudo lsof -i :8080`. Dann `WEB_PORT` auf einen freien Port setzen. Der Backend-Port wird standardmäßig nicht veröffentlicht. |
    | 504 beim Deploy in Portainer | Kein App-Fehler, siehe [504 Gateway Time-out](#504-gateway-time-out-in-portainer). |
+   | `container name "/cpc-backend" is already in use` | Reste eines fehlgeschlagenen Deploys. `docker rm -f cpc-backend cpc-frontend cpc-db`, danach neu deployen. |
+   | 502 in der UI, nachdem nur das Backend neu gestartet wurde | nginx cacht die IP des Backends beim Start. `docker restart cpc-frontend` (oder den ganzen Stack neu deployen). |
+   | Stack lässt sich nicht neu deployen | In Portainer **Remove stack** (nicht nur „Stop"), dann neu anlegen. Volumes `cpc-app-data`/`cpc-db-data` bleiben dabei erhalten. |
 
 ---
 
