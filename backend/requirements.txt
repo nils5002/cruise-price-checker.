@@ -1,0 +1,17 @@
+# Web layer
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# Persistence (SQLite out of the box, PostgreSQL via DATABASE_URL)
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.10
+
+# Browser automation -- must match the Playwright base image tag
+playwright==1.49.0
+
+# Scheduling + outbound notifications
+APScheduler==3.11.0
+httpx==0.28.1
+python-dotenv==1.0.1

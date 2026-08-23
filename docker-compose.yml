@@ -1,0 +1,137 @@
+# Cruise Price Checker -- vollstaendiger Stack.
+#   docker compose up -d --build
+# Portainer-kompatibel (kein Kubernetes, keine externen Abhaengigkeiten).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: cpc-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cruise}
+      POSTGRES_USER: ${POSTGRES_USER:-cruise}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      TZ: ${TZ:-Europe/Berlin}
+      PGTZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cruise} -d ${POSTGRES_DB:-cruise}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - cpc
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cpc-backend
+    restart: unless-stopped
+    # Alle Variablen sind explizit gesetzt, damit der Stack sowohl mit einer
+    # .env-Datei (docker compose) als auch mit Portainer-Umgebungsvariablen
+    # funktioniert -- ohne dass eine .env-Datei existieren muss.
+    environment:
+      DATA_DIR: /data
+      TZ: ${TZ:-Europe/Berlin}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://cruise:change-me@db:5432/cruise}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ROOT_PATH: ${ROOT_PATH:-}
+      API_KEY: ${API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      HEADLESS: ${HEADLESS:-true}
+      ENABLE_FIREFOX: ${ENABLE_FIREFOX:-true}
+      BROWSER_TIMEOUT_MS: ${BROWSER_TIMEOUT_MS:-45000}
+      NAVIGATION_TIMEOUT_MS: ${NAVIGATION_TIMEOUT_MS:-60000}
+      MIN_DELAY_BETWEEN_STEPS_MS: ${MIN_DELAY_BETWEEN_STEPS_MS:-1200}
+      MAX_DELAY_BETWEEN_STEPS_MS: ${MAX_DELAY_BETWEEN_STEPS_MS:-2600}
+      DELAY_BETWEEN_PROFILES_S: ${DELAY_BETWEEN_PROFILES_S:-8}
+      MAX_CONCURRENT_SCANS: ${MAX_CONCURRENT_SCANS:-1}
+      MAX_STEPS_PER_PROFILE: ${MAX_STEPS_PER_PROFILE:-14}
+      MAX_RETRIES_PER_PROFILE: ${MAX_RETRIES_PER_PROFILE:-2}
+      RETRY_BACKOFF_BASE_S: ${RETRY_BACKOFF_BASE_S:-5}
+      MAX_SCANS_PER_CRUISE_PER_DAY: ${MAX_SCANS_PER_CRUISE_PER_DAY:-6}
+      ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-true}
+      ENABLE_MOCK_PROVIDER: ${ENABLE_MOCK_PROVIDER:-true}
+      ENABLE_REFERRER_TESTS: ${ENABLE_REFERRER_TESTS:-false}
+      ENABLE_HTML_SNAPSHOTS: ${ENABLE_HTML_SNAPSHOTS:-true}
+      ENABLE_MULTI_ROUND_VERIFICATION: ${ENABLE_MULTI_ROUND_VERIFICATION:-true}
+      VERIFICATION_ROUNDS: ${VERIFICATION_ROUNDS:-3}
+      ENABLE_FLIGHT_COMPARISON: ${ENABLE_FLIGHT_COMPARISON:-false}
+      PREFERRED_AIRPORTS: ${PREFERRED_AIRPORTS:-DUS,CGN,DTM,FRA,AMS}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      HOMEASSISTANT_WEBHOOK_URL: ${HOMEASSISTANT_WEBHOOK_URL:-}
+      PROXY_DE_1: ${PROXY_DE_1:-}
+      PROXY_DE_2: ${PROXY_DE_2:-}
+      PROXY_DE_3: ${PROXY_DE_3:-}
+      PROXY_DE_1_LABEL: ${PROXY_DE_1_LABEL:-DE Anschluss 1}
+      PROXY_DE_2_LABEL: ${PROXY_DE_2_LABEL:-DE Anschluss 2}
+      PROXY_DE_3_LABEL: ${PROXY_DE_3_LABEL:-DE Mobilfunk}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - app-data:/data
+    ports:
+      # Direkter API-Zugriff (optional; die UI proxyt ohnehin ueber /api).
+      - "${BACKEND_PORT:-8000}:8000"
+    # Chromium braucht ausreichend Shared Memory.
+    shm_size: "1gb"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+    networks:
+      - cpc
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/}
+    container_name: cpc-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - cpc
+
+volumes:
+  db-data:
+    name: cpc-db-data
+  app-data:
+    name: cpc-app-data
+
+networks:
+  cpc:
+    name: cpc-net
